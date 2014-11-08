@@ -1,8 +1,10 @@
+from threading import Thread
 import time
 import logging
 import pandas as pd
 import re
-from threading import Thread
+import init_df
+
 
 class TailLogFile(Thread):
     """ Thread to keep track of the changes in the log file """
@@ -83,10 +85,6 @@ def make_a_log_file(name, to_terminal = True, to_filename = True,
         logger.addHandler(ch)
 
     return logger
-
-def initiate_dataframe():
-    global df
-    df = pd.DataFrame()
 
 def parse_log(line):
     pass
