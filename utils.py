@@ -4,7 +4,26 @@ import logging
 import pandas as pd
 import re
 import init_df
+from datetime import datetime
 
+
+class WriteRandomStuff(Thread):
+    """ Thread that writes the time in a log,
+    used for testing. """
+
+    def __init__(self, log_name, duration, time_interval=0.1):
+        Thread.__init__(self)
+        self.duration = duration
+        self.log_name = log_name
+        self.time_interval = time_interval
+
+    def run(self):
+        test_log = make_a_log_file(self.log_name, to_terminal=False)
+        start_time = time.time()
+
+        while time.time() - start_time < self.duration:
+            test_log.info("")
+            time.sleep(self.time_interval)
 
 class TailLogFile(Thread):
     """ Thread to keep track of the changes in the log file """
@@ -33,27 +52,29 @@ class TailLogFile(Thread):
                         for line in lines:
                             if line is not None:
                                 print_log.info(line)
+                                add_to_df(line)
                     time.sleep(self.refresh_interval)
     def stop(self):
         self.terminated = True
 
-class WriteRandomStuff(Thread):
-    """ Thread that writes in the time in a log,
-    used for testing. """
+def add_to_df(line):
+    """ Add line to the dataframe """
+    parsed_line = parse_log(line)
 
-    def __init__(self, log_name, duration, time_interval=0.1):
-        Thread.__init__(self)
-        self.duration = duration
-        self.log_name = log_name
-        self.time_interval = time_interval
+    # Format '10/Oct/2000:13:55:36 -0700'
+    time = datetime.strptime(parsed_line[3], "%d/%b/%Y:%H:%M:%S %z")
+    items = [parsed_line[i] for i in [0, 2, 5, 7]]
 
-    def run(self):
-        test_log = make_a_log_file(self.log_name, to_terminal=False)
-        start_time = time.time()
+    # Get the section of the url
+    items[3] = '/'.join(items[3].split('/')[:4])
 
-        while time.time() - start_time < self.duration:
-            test_log.info("")
-            time.sleep(self.time_interval)
+    # Add the row to the dataframe
+    df.loc[time] = items
+
+def initiate_dataframe():
+    global df
+    df = pd.DataFrame(columns=['ip_adress', 'user_id', 'http_code', 'url'])
+    df.index.name = 'time'
 
 def make_a_log_file(name, to_terminal = True, to_filename = True,
                     terminal_level="INFO", file_level = "INFO"):
@@ -87,8 +108,9 @@ def make_a_log_file(name, to_terminal = True, to_filename = True,
     return logger
 
 def parse_log(line):
-    pass
-
-
-
-    
+    regex = r'([(\d\.)]+) ([^ ]+) ([^ ]+) \[(.*?)\] "(.*?)" (\d+|-) (\d+|-) (?:"(.*?)" "(.*?)")'
+    match = re.match(regex, line)
+    if match:
+        return match.groups
+    else:
+        # Raise error in the log 
