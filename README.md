@@ -3,10 +3,6 @@ Http-monitoring
 
 A simple console program to monitor the traffic on your local machine
 
-Create
-
-          a simple console program that monitors HTTP traffic on your
-          machine:
 Consume
 
               an actively written-to w3c-formatted HTTP access log
@@ -37,10 +33,4 @@ Whenever
 Make
 
               sure all messages showing when alerting thresholds are
-              crossed remain visible on the page for historical reasons.
-Write
-
-              a test for the alerting logic
-Explain
-
-              how you’d improve on this application design
+              crossed remain visible on the page for historical
