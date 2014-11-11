@@ -1,10 +1,9 @@
 import unittest
 import os
-import init_df
-import re
 from utils import (
 	WriteRandomStuff, 
-	TailLogFile
+	TailLogFile,
+	parse_line
 )
 
 
@@ -40,20 +39,11 @@ class TestUtils(unittest.TestCase):
 			for tail_line, test_line in zip(tail_lines, test_lines):
 				self.assertEqual(tail_line, test_line)
 
-	def test_initiate_dataframe(self):
-		init_df.init_dataframe()
-		try:
-		    self.assertIn(init_df.df, globals())
-		except:
-			import pdb; pdb.set_trace()
-
-	def test_parse_log(self):
+	def test_parse_line(self):
 		test_string1 = r'127.0.0.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326\
 		 "http://www.example.com/start.html" "Mozilla/4.08 [en] (Win98; I ;Nav)"'
-
-		regex = r'([(\d\.)]+) ([^ ]+) ([^ ]+) \[(.*?)\] "(.*?)" (\d+|-) (\d+|-) (?:"(.*?)" "(.*?)")'
-
-		print re.match(regex, test_string4).groups()
+		groups = parse_line(test_string1)
+		self.assertEqual(len(groups), 9)
 
 if __name__ == '__main__':
 	unittest.main()

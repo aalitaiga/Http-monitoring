@@ -59,7 +59,7 @@ class TailLogFile(Thread):
 
 def add_to_df(line):
     """ Add line to the dataframe """
-    parsed_line = parse_log(line)
+    parsed_line = parse_line(line)
 
     # Format '10/Oct/2000:13:55:36 -0700'
     time = datetime.strptime(parsed_line[3], "%d/%b/%Y:%H:%M:%S %z")
@@ -107,7 +107,7 @@ def make_a_log_file(name, to_terminal = True, to_filename = True,
 
     return logger
 
-def parse_log(line):
+def parse_line(line):
     regex = r'([(\d\.)]+) ([^ ]+) ([^ ]+) \[(.*?)\] "(.*?)" (\d+|-) (\d+|-) (?:"(.*?)" "(.*?)")'
     match = re.match(regex, line)
     if match:
