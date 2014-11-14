@@ -6,6 +6,8 @@ from utils import (
 	parse_line
 )
 
+# To do, update the test
+# Write test to see how many connection per s the program can handle
 
 class TestUtils(unittest.TestCase):
 

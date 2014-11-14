@@ -39,7 +39,7 @@ class TailLogFile(Thread):
     and update the dataframe containing the current data """
 
     def __init__(self, file_name, refresh_interval=0.1, log_name="tail.log"):
-        self.file_name = file_name
+        self.file_name = file_name 
         # ecire quelque chose pour chemin absolu ou relatif
         self.refresh_interval = refresh_interval
         self.log_name = log_name
@@ -85,7 +85,7 @@ class SendReport(Thread):
             log.info("Report for the last 10s : {} was the section with the most\
                 hits ({} hits), {} connections were made, from {} users"\
                 .format(max_section, nb_hits, nb_connections, nb_users))
-            # Not crucial but we make sure 10 wait exactly 10s even if the 
+            # Not crucial but we make sure to wait exactly 10s even if the 
             # operations are taking some time
             time_to_wait = dt.timedelta(seconds=10) - dt.datetime.now() + now
             time.sleep(time_to_wait.total_seconds)
@@ -117,6 +117,7 @@ class MonitorTraffic(Thread):
                     an alert - hits = {}, triggered at {}")\
                     .format(nb_hits, current_time)
                     self.on_alert = True
+            clean_df()
             time.sleep(10)
 
 
@@ -131,18 +132,25 @@ def add_to_df(line):
     # Get the section of the url
     section = '/'.join(items[3].split('/')[:4])
     # Add the row to the dataframe
-    df.loc[time] = items.append(section)
+    df.loc[time] = items.append(section) # Don't forget to replace '-' by NaNs
 
+
+# Use a function? Or just instantiate the data frame at the beginning of the program?
 def initiate_dataframe():
+    """ Global variable is used to handle the data between the differents threads """
     global df
     df = pd.DataFrame(columns=['ip_adress', 'user_id', 'http_code', 'url', 'section'])
     df.index.name = 'time'
 
+
+# maybe just add to the thread MonitorTraffic
 def clean_df():
+    """ Function to remove old data and to limit the memory usage """
     if not 'df' in globals():
         initiate_dataframe()
     to_keep = dt.datetime.now() - dt.timedela(minutes=2)
     df = df[df.time > to_keep]
+    # or del df[df.time < to_keep]
 
 def parse_log(line):
     regex = r'([(\d\.)]+) ([^ ]+) ([^ ]+) \[(.*?)\] "(.*?)" (\d+|-) (\d+|-) (?:"(.*?)" "(.*?)")'
