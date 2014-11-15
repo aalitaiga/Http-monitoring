@@ -1,21 +1,35 @@
 """
-http_monitoring.py [log_file] 
+Http Monitoring
 
-commands:
+Usage:
+    http_monitoring.py log_file [--log]
 
-
-
-
+Options:
+    -h --help       Show this screen.
+    log_file        Name or path to the log file to tail.
+    threshold       Number of connection autorized before getting a warning
+    --log           Name of the log file for the output (necessary ??)
 """
 
-from threading import Thread
+from threading import Thread, RLock
 import time
 import logging
 import pandas as pd
 import re
 import datetime as dt
 
-# To do add, something to start the thread together
+
+# A lock is used to prevent the different threads to access the dataframe
+# at the same time
+lock = RLock()
+
+# Time interval between report
+T_REPORT = 10
+# Time range window to use to monitor the traffic
+TM_WINDOW = 120
+# Number of connection autorized during the window
+THRESHOLD = 100
+
 
 class WriteRandomStuff(Thread):
     """ Thread that writes the time in a log,
@@ -59,8 +73,8 @@ class TailLogFile(Thread):
                         file_.seek(curr_position)
                     else:
                         for line in lines:
-                            if line is not None:
-                                log.info(line)
+                            log.info(line)
+                            with lock:
                                 add_to_df(line)
                     time.sleep(self.refresh_interval)
     def stop(self):
@@ -75,19 +89,22 @@ class SendReport(Thread):
     def run(self):
         while True:
             now = dt.datetime.now()
-            time_report = dt.timedelta(seconds=10)
-            to_report = df[df.time > time_report]
+            time_report = dt.timedelta(seconds=T_REPORT)
+
+            with lock:
+                to_report = df[df.time > time_report]
+
             max_section = to_report.groupby('section').count().idmax()
-            nb_hits = to_report.groupby('section').count().max()
+            nb_section_hits = to_report.groupby('section').count().max()
             nb_users = to_report.groupby('ip_adress').size()
             nb_connections = len(to_report)
 
-            log.info("Report for the last 10s : {} was the section with the most\
+            log.info("Report for the last {}s : {} was the section with the most\
                 hits ({} hits), {} connections were made, from {} users"\
-                .format(max_section, nb_hits, nb_connections, nb_users))
+            .format(T_REPORT, max_section, nb_section_hits, nb_connections, nb_users))
             # Not crucial but we make sure to wait exactly 10s even if the 
             # operations are taking some time
-            time_to_wait = dt.timedelta(seconds=10) - dt.datetime.now() + now
+            time_to_wait = dt.timedelta(seconds=T_REPORT) - dt.datetime.now() + now
             time.sleep(time_to_wait.total_seconds)
 
 class MonitorTraffic(Thread):
@@ -95,7 +112,7 @@ class MonitorTraffic(Thread):
     value for more than 2 minutes. Send an other warning when the traffic
     gets back to normal """
 
-    def __init__(self, threshold=100):
+    def __init__(self, threshold=THRESHOLD):
         self.on_alert = False
         self.threshold = threshold
 
@@ -103,7 +120,8 @@ class MonitorTraffic(Thread):
         while True:
             current_time = dt.datetime.now()
             interval_to_monitor = current_time - dt.timedelta(minutes=2)
-            to_monitor = df[df.time > interval_to_monitor]
+            with lock:
+                to_monitor = df[df.time > interval_to_monitor]
             nb_hits = len(to_monitor)
 
             if self.on_alert:
@@ -118,21 +136,75 @@ class MonitorTraffic(Thread):
                     .format(nb_hits, current_time)
                     self.on_alert = True
             clean_df()
-            time.sleep(10)
+            time.sleep(T_REPORT)
+
+        # To do: find a way to calculate nb_hist without calculating the number of 
+        # hits the last 2min but only the last 10s.
+        # Idee use a queue  new_hits   --> [ | | | | | ]  --> old_hits
+        # When the function is called the first time calculate nb_hits
+        # Every 10s juste calculate: 
+        # new_nb_hits = old_nb_hits + new_hits - old_hits
+        # Implement a queue whom the size is equal to 2min / 10 i.e 12 elements
+        # And create a push function which send you back the old_hits if the queue is full
+        # This method allows us to limit the calculation and the memory usage,
+        # We just need to keep in memory the data for the last 10s
+
+    def run_updated(self):
+        queue = Queue(TM_WINDOW / T_REPORT)
+        while True:
+            current_time = dt.datetime.now()
+            interval_to_monitor = current_time - dt.timedelta(seconds=T_REPORT)
+            with lock:
+                to_monitor = df[df.time > interval_to_monitor]
+            queue.push(len(to_monitor))
+            nb_hits = queue.size()
+
+            if self.on_alert:
+                if nb_hits < self.threshold:
+                    log.warning("Traffic back to normal, for the last two minutes\
+                    generated an alert - hits = {}, triggered at {}")\
+                    .format(nb_hits, current_time)
+            else:
+                if nb_hits > self.high_threshold:
+                    log.warning("High traffic for the last two minutes generated\
+                    an alert - hits = {}, triggered at {}")\
+                    .format(nb_hits, current_time)
+                    self.on_alert = True
+            clean_df()
+            time.sleep(T_REPORT)
+
+
+class Queue(object):
+    def __init__(self, queue_size):
+        self.queue = []
+        self.max_size = queue_size
+
+    def push(self, element):
+        if len(self.queue) < self.max_size:
+            self.queue += element
+            return None
+        else:
+            self.queue = [element] + self.queue
+            return self.queue.pop() 
+
+    def size(self):
+        return sum(self.queue) 
+
 
 
 def add_to_df(line):
     """ Add line to the dataframe """
     parsed_line = parse_log(line)
     # Format '10/Oct/2000:13:55:36 -0700'
-    # The time zone is removed, we used it is the same on the log file
+    # The time zone is removed, we assume it is the same on the log file
     # and on the computer 
     time = dt.datetime.strptime(parsed_line[3][:-6], "%d/%b/%Y:%H:%M:%S")
     items = [parsed_line[i] for i in [0, 2, 5, 7]]
     # Get the section of the url
     section = '/'.join(items[3].split('/')[:4])
     # Add the row to the dataframe
-    df.loc[time] = items.append(section) # Don't forget to replace '-' by NaNs
+    with lock:
+        df.loc[time] = items.append(section) # Don't forget to replace '-' by NaNs
 
 
 # Use a function? Or just instantiate the data frame at the beginning of the program?
@@ -143,13 +215,13 @@ def initiate_dataframe():
     df.index.name = 'time'
 
 
-# maybe just add to the thread MonitorTraffic
 def clean_df():
     """ Function to remove old data and to limit the memory usage """
     if not 'df' in globals():
         initiate_dataframe()
     to_keep = dt.datetime.now() - dt.timedela(minutes=2)
-    df = df[df.time > to_keep]
+    with lock:
+        df = df[df.time > to_keep]
     # or del df[df.time < to_keep]
 
 def parse_log(line):
@@ -173,9 +245,7 @@ def make_a_log_file(name, to_terminal = True, to_filename = True,
     :return: logger object
     """
     logger = logging.getLogger(name)
-
     logger.setLevel(logging.DEBUG)
-    # create file handler which logs even debug messages
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 
     if to_filename:
@@ -195,7 +265,10 @@ def make_a_log_file(name, to_terminal = True, to_filename = True,
 if __name__ == '__main__':
     from docopt import docopt
 
-    log = make_a_log_file('write.log', to_terminal=False)
+    args = docopt(__doc__, version='Http Monitoring 1.0')
+
+    if args[log_file]:
+        log = make_a_log_file('http_monitoring.log', to_terminal=False)
 
 
 
