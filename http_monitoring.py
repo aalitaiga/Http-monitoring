@@ -2,13 +2,14 @@
 Http Monitoring
 
 Usage:
-    http_monitoring.py log_file [--log]
+    http_monitoring.py
 
 Options:
     -h --help       Show this screen.
     log_file        Name or path to the log file to tail.
     threshold       Number of connection autorized before getting a warning
     --log           Name of the log file for the output (necessary ??)
+    --mode [PRODUCTION] ou [TEST]
 """
 
 from threading import Thread, RLock
@@ -29,7 +30,6 @@ T_REPORT = 10
 TM_WINDOW = 120
 # Number of connection autorized during the window
 THRESHOLD = 100
-
 
 class WriteRandomStuff(Thread):
     """ Thread that writes the time in a log,
@@ -63,11 +63,9 @@ class WriteApacheLog(Thread):
         start_time = time.time()
         with open(self.file_name, 'w+') as f:
             while time.time() - start_time < self.duration:
-                string1 = '127.0.0.1 - adrien [{} -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326 ' + \
-                '"http://www.example.com/start.html" "Mozilla/4.08 [en] (Win98; I ;Nav)"\n'
-
+                string = '127.0.0.1 - adrien [{} -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326 "http://www.example.com/start.html" "Mozilla/4.08 [en] (Win98; I ;Nav)" \n'
                 time_now = dt.datetime.strftime(dt.datetime.now(),"%d/%b/%Y:%H:%M:%S")
-                f.write(string1.format(time_now))
+                f.write(string.format(time_now))
                 time.sleep(self.time_interval)
 
 class TailLogFile(Thread):
@@ -82,9 +80,7 @@ class TailLogFile(Thread):
         self.log_name = log_name
         self.terminated = False
 
-    def run(self):     
-        if not 'df' in globals():
-            initiate_dataframe()
+    def run(self): 
         with open(self.file_name, 'r') as file_:
                 # Go to the end of file
                 file_.seek(0,2)
@@ -94,13 +90,32 @@ class TailLogFile(Thread):
                     if not lines:
                         file_.seek(curr_position)
                     else:
-                        for line in lines:
+                        for l in lines:
                             with lock:
-                                add_to_df(line)
-                                assert not df.empty
+                                add_to_df(l)
+                                print df
                     time.sleep(self.refresh_interval)
     def stop(self):
         self.terminated = True
+
+def add_to_df(line):
+    """ Add line to the dataframe """
+    log = make_a_log_file('http_monitoring.log')
+    regex = r'([(\d\.)]+) ([^ ]+) ([^ ]+) \[(.*?)\] "(.*?)" (\d+|-) (\d+|-) (?:"(.*?)" "(.*?)")'
+    match = re.match(regex, line)
+    if match:
+        parsed_line = match.groups()
+    else:
+        return log.error(line)
+    # Format '10/Oct/2000:13:55:36 -0700'
+    # The time zone is removed, we assume the log file and the computer have the same
+    time = dt.datetime.strptime(parsed_line[3][:-6], "%d/%b/%Y:%H:%M:%S")
+    items = [parsed_line[i] for i in [0, 2, 5, 7]]
+    section = '/'.join(items[3].split('/')[:4])
+    items.extend([section, time])
+    with lock:
+        df.loc[len(df)+1] = items
+        df.fillna('-', inplace=True)
 
 class SendReport(Thread):
     """ Thread used to send a report every 10s """
@@ -115,18 +130,19 @@ class SendReport(Thread):
             with lock:
                 to_report = df[df.time > time_report]
 
-            max_section = to_report.groupby('section').count().idmax()
-            nb_section_hits = to_report.groupby('section').count().max()
-            nb_users = to_report.groupby('ip_adress').size()
-            nb_connections = len(to_report)
+            if not to_report.empty:
+                max_section = to_report.groupby('section').count().idxmax()
+                nb_section_hits = to_report.groupby('section').count().max()
+                nb_users = to_report.groupby('ip_adress').size()
+                nb_connections = len(to_report)
 
-            log.info("Report for the last {}s : {} was the section with the most\
-                hits ({} hits), {} connections were made, from {} users"\
-            .format(T_REPORT, max_section, nb_section_hits, nb_connections, nb_users))
-            # Not crucial but we make sure to wait exactly 10s even if the 
-            # operations are taking some time
-            time_to_wait = dt.timedelta(seconds=T_REPORT) - dt.datetime.now() + now
-            time.sleep(time_to_wait.total_seconds)
+                log.info("Report for the last {}s : {} was the section with the most\
+                    hits ({} hits), {} connections were made, from {} users"\
+                .format(T_REPORT, max_section, nb_section_hits, nb_connections, nb_users))
+                # Not crucial but we make sure to wait exactly 10s even if the 
+                # operations are taking some time
+                time_to_wait = dt.timedelta(seconds=T_REPORT) - dt.datetime.now() + now
+                time.sleep(time_to_wait.total_seconds)
 
 class MonitorTraffic(Thread):
     """ Thread that send a warning if the traffic was above a certain
@@ -134,6 +150,7 @@ class MonitorTraffic(Thread):
     gets back to normal """
 
     def __init__(self, threshold=THRESHOLD):
+        Thread.__init__(self)
         self.on_alert = False
         self.threshold = threshold
 
@@ -159,7 +176,7 @@ class MonitorTraffic(Thread):
                     generated an alert - hits = {}, triggered at {}")\
                     .format(nb_hits, current_time)
             else:
-                if nb_hits > self.high_threshold:
+                if nb_hits > self.threshold:
                     log.warning("High traffic for the last two minutes generated\
                     an alert - hits = {}, triggered at {}")\
                     .format(nb_hits, current_time)
@@ -181,49 +198,12 @@ class Queue(object):
     def size(self):
         return sum(self.queue) 
 
-
-
-def add_to_df(line):
-    """ Add line to the dataframe """
-    try:
-        parsed_line = parse_log(line)
-    except:
-        import ipdb; ipdb.set_trace()
-    # Format '10/Oct/2000:13:55:36 -0700'
-    # The time zone is removed, we assume it is the same on the log file
-    # and on the computer 
-    time = dt.datetime.strptime(parsed_line[3][:-6], "%d/%b/%Y:%H:%M:%S")
-    items = [parsed_line[i] for i in [0, 2, 5, 7]]
-    # Get the section of the url
-    section = '/'.join(items[3].split('/')[:4])
-    # Add the row to the dataframe
-    with lock:
-        df.loc[time] = items.append(section) # Don't forget to replace '-' by NaNs
-
-
-# Use a function? Or just instantiate the data frame at the beginning of the program?
-def initiate_dataframe():
-    """ Global variable is used to handle the data between the differents threads """
-    global df
-    df = pd.DataFrame(columns=['ip_adress', 'user_id', 'http_code', 'url', 'section'])
-    df.index.name = 'time'
-
-
 def clean_df():
     """ Function to remove old data and to limit the memory usage """
-    if not 'df' in globals():
-        initiate_dataframe()
-    to_keep = dt.datetime.now() - dt.timedela(secondes=T_REPORT)
+    to_keep = dt.datetime.now() - dt.timedelta(seconds=T_REPORT)
     with lock:
         df = df[df.time > to_keep]
 
-def parse_log(line):
-    regex = r'([(\d\.)]+) ([^ ]+) ([^ ]+) \[(.*?)\] "(.*?)" (\d+|-) (\d+|-) (?:"(.*?)" "(.*?)")'
-    match = re.search(regex, line)
-    if match:
-        return match.groups()
-    else:
-        log.error("Impossible to parse line: {}".format(line))
 
 def make_a_log_file(name, to_terminal = True, to_filename = True,
                     terminal_level="INFO", file_level = "INFO"):
@@ -259,14 +239,19 @@ if __name__ == '__main__':
 
     args = docopt(__doc__, version='Http Monitoring 1.0')
 
-    if args['log_file']:
-        log = make_a_log_file('http_monitoring.log')
-        tail = TailLogFile(args['log_file'])
-        tail.start()
-        monitor = MonitorTraffic()
-        monitor.start()
-        report = SendReport()
-        report.start()
+    global df
+    df = pd.DataFrame(columns=['ip_adress', 'user_id', 'http_code', 'url', 'section', 'time']) 
+
+    log = make_a_log_file('http_monitoring.log')
+    write = WriteApacheLog('test.log', 20)
+    tail = TailLogFile('test.log')
+    write.start()
+    time.sleep(10)
+    tail.start()
+    monitor = MonitorTraffic()
+    monitor.start()
+    report = SendReport()
+    report.start()
 
 
 
