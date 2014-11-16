@@ -36,6 +36,7 @@ class WriteRandomStuff(Thread):
     used for testing. """
 
     def __init__(self, log_name, duration, time_interval=0.1):
+        Thread.__init__(self)
         self.duration = duration
         self.log_name = log_name
         self.time_interval = time_interval
@@ -48,11 +49,33 @@ class WriteRandomStuff(Thread):
             test_log.info("")
             time.sleep(self.time_interval)
 
+class WriteApacheLog(Thread):
+    """ Thread that simulates an apache log,
+    used for testing. """
+
+    def __init__(self, file_name, duration, time_interval=0.1):
+        Thread.__init__(self)
+        self.duration = duration
+        self.file_name = file_name
+        self.time_interval = time_interval
+
+    def run(self):
+        start_time = time.time()
+        with open(self.file_name, 'w+') as f:
+            while time.time() - start_time < self.duration:
+                string1 = '127.0.0.1 - adrien [{} -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326 ' + \
+                '"http://www.example.com/start.html" "Mozilla/4.08 [en] (Win98; I ;Nav)"\n'
+
+                time_now = dt.datetime.strftime(dt.datetime.now(),"%d/%b/%Y:%H:%M:%S")
+                f.write(string1.format(time_now))
+                time.sleep(self.time_interval)
+
 class TailLogFile(Thread):
     """ Thread to keep track of the changes in the log file
     and update the dataframe containing the current data """
 
     def __init__(self, file_name, refresh_interval=0.1, log_name="tail.log"):
+        Thread.__init__(self)
         self.file_name = file_name 
         # ecire quelque chose pour chemin absolu ou relatif
         self.refresh_interval = refresh_interval
@@ -62,7 +85,6 @@ class TailLogFile(Thread):
     def run(self):     
         if not 'df' in globals():
             initiate_dataframe()
-        #print_log = make_a_log_file(self.log_name, to_terminal=False)
         with open(self.file_name, 'r') as file_:
                 # Go to the end of file
                 file_.seek(0,2)
@@ -73,9 +95,9 @@ class TailLogFile(Thread):
                         file_.seek(curr_position)
                     else:
                         for line in lines:
-                            log.info(line)
                             with lock:
                                 add_to_df(line)
+                                assert not df.empty
                     time.sleep(self.refresh_interval)
     def stop(self):
         self.terminated = True
@@ -84,7 +106,6 @@ class SendReport(Thread):
     """ Thread used to send a report every 10s """
     def __init__(self):
         Thread.__init__(self)
-        # Do something to start to tail?
 
     def run(self):
         while True:
@@ -116,40 +137,13 @@ class MonitorTraffic(Thread):
         self.on_alert = False
         self.threshold = threshold
 
+    # To monitor the traffic on the last 2min we need to check the traffic regularly, 
+    # here it's done every 10s. We could keep in memory the data for the last 2min and
+    # calculate the new stats about the traffic every 10s, but using a queue with fixed
+    # sized we can limit the memory usage
+
+
     def run(self):
-        while True:
-            current_time = dt.datetime.now()
-            interval_to_monitor = current_time - dt.timedelta(minutes=2)
-            with lock:
-                to_monitor = df[df.time > interval_to_monitor]
-            nb_hits = len(to_monitor)
-
-            if self.on_alert:
-                if nb_hits < self.threshold:
-                    log.warning("Traffic back to normal, for the last two minutes\
-                    generated an alert - hits = {}, triggered at {}")\
-                    .format(nb_hits, current_time)
-            else:
-                if nb_hits > self.high_threshold:
-                    log.warning("High traffic for the last two minutes generated\
-                    an alert - hits = {}, triggered at {}")\
-                    .format(nb_hits, current_time)
-                    self.on_alert = True
-            clean_df()
-            time.sleep(T_REPORT)
-
-        # To do: find a way to calculate nb_hist without calculating the number of 
-        # hits the last 2min but only the last 10s.
-        # Idee use a queue  new_hits   --> [ | | | | | ]  --> old_hits
-        # When the function is called the first time calculate nb_hits
-        # Every 10s juste calculate: 
-        # new_nb_hits = old_nb_hits + new_hits - old_hits
-        # Implement a queue whom the size is equal to 2min / 10 i.e 12 elements
-        # And create a push function which send you back the old_hits if the queue is full
-        # This method allows us to limit the calculation and the memory usage,
-        # We just need to keep in memory the data for the last 10s
-
-    def run_updated(self):
         queue = Queue(TM_WINDOW / T_REPORT)
         while True:
             current_time = dt.datetime.now()
@@ -180,12 +174,9 @@ class Queue(object):
         self.max_size = queue_size
 
     def push(self, element):
-        if len(self.queue) < self.max_size:
-            self.queue += element
-            return None
-        else:
-            self.queue = [element] + self.queue
-            return self.queue.pop() 
+        self.queue = [element] + self.queue
+        if len(self.queue) > self.max_size:
+            self.queue.pop()
 
     def size(self):
         return sum(self.queue) 
@@ -194,7 +185,10 @@ class Queue(object):
 
 def add_to_df(line):
     """ Add line to the dataframe """
-    parsed_line = parse_log(line)
+    try:
+        parsed_line = parse_log(line)
+    except:
+        import ipdb; ipdb.set_trace()
     # Format '10/Oct/2000:13:55:36 -0700'
     # The time zone is removed, we assume it is the same on the log file
     # and on the computer 
@@ -219,19 +213,17 @@ def clean_df():
     """ Function to remove old data and to limit the memory usage """
     if not 'df' in globals():
         initiate_dataframe()
-    to_keep = dt.datetime.now() - dt.timedela(minutes=2)
+    to_keep = dt.datetime.now() - dt.timedela(secondes=T_REPORT)
     with lock:
         df = df[df.time > to_keep]
-    # or del df[df.time < to_keep]
 
 def parse_log(line):
     regex = r'([(\d\.)]+) ([^ ]+) ([^ ]+) \[(.*?)\] "(.*?)" (\d+|-) (\d+|-) (?:"(.*?)" "(.*?)")'
-    match = re.match(regex, line)
+    match = re.search(regex, line)
     if match:
-        return match.groups
+        return match.groups()
     else:
-        # Raise error in the log
-        log.error("Impossible to parse line: {}").format(line)
+        log.error("Impossible to parse line: {}".format(line))
 
 def make_a_log_file(name, to_terminal = True, to_filename = True,
                     terminal_level="INFO", file_level = "INFO"):
@@ -267,8 +259,17 @@ if __name__ == '__main__':
 
     args = docopt(__doc__, version='Http Monitoring 1.0')
 
-    if args[log_file]:
-        log = make_a_log_file('http_monitoring.log', to_terminal=False)
+    if args['log_file']:
+        log = make_a_log_file('http_monitoring.log')
+        tail = TailLogFile(args['log_file'])
+        tail.start()
+        monitor = MonitorTraffic()
+        monitor.start()
+        report = SendReport()
+        report.start()
+
+
+
 
 
 
