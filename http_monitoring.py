@@ -20,16 +20,33 @@ import re
 import datetime as dt
 
 
+# log = logging.getLogger('http_monitoring')
+# log.setLevel(logging.DEBUG)
+# formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+
+# fh = logging.FileHandler('http_monitoring.log', encoding='UTF-8')
+# fh.setLevel(logging.INFO)
+# fh.setFormatter(formatter)
+# log.addHandler(fh)
+
+# ch = logging.StreamHandler()
+# ch.setLevel(logging.INFO)
+# ch.setFormatter(formatter)
+# log.addHandler(ch)
+
 # A lock is used to prevent the different threads to access the dataframe
 # at the same time
 lock = RLock()
-
 # Time interval between report
 T_REPORT = 10
 # Time range window to use to monitor the traffic
 TM_WINDOW = 120
 # Number of connection autorized during the window
 THRESHOLD = 100
+# Global variable to store the data 
+global df
+df = pd.DataFrame(columns=['ip_adress', 'user_id', 'http_code', 'url', 'section', 'time']) 
+
 
 class WriteRandomStuff(Thread):
     """ Thread that writes the time in a log,
@@ -93,7 +110,6 @@ class TailLogFile(Thread):
                         for l in lines:
                             with lock:
                                 add_to_df(l)
-                                print df
                     time.sleep(self.refresh_interval)
     def stop(self):
         self.terminated = True
@@ -115,7 +131,7 @@ def add_to_df(line):
     items.extend([section, time])
     with lock:
         df.loc[len(df)+1] = items
-        df.fillna('-', inplace=True)
+        df.replace('-', pd.np.nan, inplace=True)
 
 class SendReport(Thread):
     """ Thread used to send a report every 10s """
@@ -124,25 +140,24 @@ class SendReport(Thread):
 
     def run(self):
         while True:
-            now = dt.datetime.now()
-            time_report = dt.timedelta(seconds=T_REPORT)
+            time_report = dt.datetime.now() - dt.timedelta(seconds=T_REPORT)
 
             with lock:
-                to_report = df[df.time > time_report]
+                to_report = df[df['time'] > time_report]
 
-            if not to_report.empty:
-                max_section = to_report.groupby('section').count().idxmax()
-                nb_section_hits = to_report.groupby('section').count().max()
-                nb_users = to_report.groupby('ip_adress').size()
+            if to_report.empty:
+                log.info("Report for the last {}s: No connection were made".format(T_REPORT))
+
+            else:
+                max_section = to_report.groupby('section').count().idxmax()[0]
+                nb_section_hits = to_report.groupby('section').count().max()[0]
+                nb_users = to_report.groupby('ip_adress').size()[0]
                 nb_connections = len(to_report)
 
-                log.info("Report for the last {}s : {} was the section with the most\
-                    hits ({} hits), {} connections were made, from {} users"\
-                .format(T_REPORT, max_section, nb_section_hits, nb_connections, nb_users))
-                # Not crucial but we make sure to wait exactly 10s even if the 
-                # operations are taking some time
-                time_to_wait = dt.timedelta(seconds=T_REPORT) - dt.datetime.now() + now
-                time.sleep(time_to_wait.total_seconds)
+                report_string = "Report for the last {}s :{} connections were made, from {} users, " + \
+                "{} was the section with the most hits ({} hits)"
+                log.info(report_string.format(T_REPORT, nb_connections, nb_users, max_section, nb_section_hits))
+            time.sleep(T_REPORT)
 
 class MonitorTraffic(Thread):
     """ Thread that send a warning if the traffic was above a certain
@@ -202,11 +217,9 @@ def clean_df():
     """ Function to remove old data and to limit the memory usage """
     to_keep = dt.datetime.now() - dt.timedelta(seconds=T_REPORT)
     with lock:
-        df = df[df.time > to_keep]
+        df.drop(df.index[df.time < to_keep], inplace=True)
 
-
-def make_a_log_file(name, to_terminal = True, to_filename = True,
-                    terminal_level="INFO", file_level = "INFO"):
+def make_a_log_file(name, to_terminal = True, to_filename = True, terminal_level="INFO", file_level = "INFO"):
     """
     Create a new logger or also get the reference from an existing one
     :param name: the name of the logger
@@ -221,17 +234,32 @@ def make_a_log_file(name, to_terminal = True, to_filename = True,
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 
     if to_filename:
-        fh = logging.FileHandler(name, encoding='UTF-8')
+        fh = logging.FileHandler('http_monitoring.log', encoding='UTF-8')
         fh.setLevel(file_level)
         fh.setFormatter(formatter)
         logger.addHandler(fh)
 
     if to_terminal:
-        ch = logging.StreamHandler()
-        ch.setLevel(terminal_level)
-        ch.setFormatter(formatter)
-        logger.addHandler(ch)
 
+        found = False
+        for index,h in enumerate(logger.handlers):
+            if isinstance(h,logging.StreamHandler) and not isinstance(h,logging.FileHandler):
+                found = True
+                break
+
+        if not found:
+            ch = logging.StreamHandler()
+            ch.setLevel(terminal_level)
+            # create formatter and add it to the handlers
+            ch.setFormatter(formatter)
+            # add the handlers to the logger
+            logger.addHandler(ch)
+
+        else:
+            ch = logger.handlers[index]
+            ch.setFormatter(formatter)
+            ch.setLevel(terminal_level)
+    logger.propagate = False
     return logger
 
 if __name__ == '__main__':
@@ -239,17 +267,13 @@ if __name__ == '__main__':
 
     args = docopt(__doc__, version='Http Monitoring 1.0')
 
-    global df
-    df = pd.DataFrame(columns=['ip_adress', 'user_id', 'http_code', 'url', 'section', 'time']) 
-
-    log = make_a_log_file('http_monitoring.log')
-    write = WriteApacheLog('test.log', 20)
+    log = make_a_log_file('http_monitoring')
     tail = TailLogFile('test.log')
-    write.start()
-    time.sleep(10)
     tail.start()
+
     monitor = MonitorTraffic()
     monitor.start()
+
     report = SendReport()
     report.start()
 

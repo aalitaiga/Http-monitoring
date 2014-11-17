@@ -67,7 +67,6 @@ class TestUtils(unittest.TestCase):
 		time.sleep(2)
 		tail.stop()
 
-		print df
 		self.assertFalse(df.empty)
 
 	# def test_monitor_traffic(self):
