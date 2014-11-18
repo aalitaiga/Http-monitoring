@@ -215,7 +215,7 @@ class Queue(object):
 
 def clean_df():
     """ Function to remove old data and to limit the memory usage """
-    to_keep = dt.datetime.now() - dt.timedelta(seconds=T_REPORT)
+    to_keep = dt.datetime.now() - dt.timedelta(seconds=2*T_REPORT)
     with lock:
         df.drop(df.index[df.time < to_keep], inplace=True)
 
