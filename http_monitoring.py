@@ -22,7 +22,6 @@ bstr = '127.0.0.1 - adrien [{} -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326 "ht
 # A lock is used to prevent the different threads to access the dataframe
 # at the same time
 lock = RLock()
-lockfile = RLock()
 # Time interval between report
 T_REPORT = 10
 # Time range window to use to monitor the traffic
@@ -77,7 +76,7 @@ class TailLogFile(Thread):
     """ Thread to keep track of the changes in the log file
     and update the dataframe containing the current data """
 
-    def __init__(self, file_name, refresh_interval=0.05):
+    def __init__(self, file_name, refresh_interval=0.1):
         Thread.__init__(self)
         self.file_name = file_name 
         # ecire quelque chose pour chemin absolu ou relatif
@@ -96,49 +95,11 @@ class TailLogFile(Thread):
                         file_.seek(curr_position)
                     else:
                         for l in lines:
-                                """ Add line to the dataframe """
-                                regex = r'([(\d\.)]+) ([^ ]+) ([^ ]+) \[(.*?)\] "(.*?)" (\d+|-) (\d+|-) (?:"(.*?)" "(.*?)")'
-                                match = re.match(regex, l)
-                                if match:
-                                    parsed_line = match.groups()
-                                else:
-                                    return log.error(l)
-                                # Format '10/Oct/2000:13:55:36 -0700'
-                                # The time zone is removed, we assume the log file and the computer have the same
-                                temps = dt.datetime.strptime(parsed_line[3][:-6], "%d/%b/%Y:%H:%M:%S")
-                                items = [parsed_line[i] for i in [0, 2, 5, 7]]
-                                section = '/'.join(items[3].split('/')[:4])
-                                items.extend([section, temps])
-                                with lock:
-                                    df.loc[len(df)+1] = items
-                                    df.replace('-', pd.np.nan, inplace=True)
+                                add_to_df(l)
                     time.sleep(self.refresh_interval)
 
     def stop(self):
         self.terminated = True
-
-class AddLineToDf(Thread):
-    def __init__(self, line):
-        Thread.__init__(self)
-        self.line = line
-
-    def run(self):
-        """ Add line to the dataframe """
-        regex = r'([(\d\.)]+) ([^ ]+) ([^ ]+) \[(.*?)\] "(.*?)" (\d+|-) (\d+|-) (?:"(.*?)" "(.*?)")'
-        match = re.match(regex, self.line)
-        if match:
-            parsed_line = match.groups()
-        else:
-            return log.error(self.line)
-        # Format '10/Oct/2000:13:55:36 -0700'
-        # The time zone is removed, we assume the log file and the computer have the same
-        time = dt.datetime.strptime(parsed_line[3][:-6], "%d/%b/%Y:%H:%M:%S")
-        items = [parsed_line[i] for i in [0, 2, 5, 7]]
-        section = '/'.join(items[3].split('/')[:4])
-        items.extend([section, time])
-        df.loc[len(df)+1] = items
-        df.replace('-', pd.np.nan, inplace=True)
-
 
 def add_to_df(line):
     """ Add line to the dataframe """
@@ -225,6 +186,7 @@ class MonitorTraffic(Thread):
             time.sleep(T_REPORT)
 
 
+
 class Queue(object):
     def __init__(self, queue_size):
         self.queue = []
@@ -243,6 +205,7 @@ def clean_df():
     to_keep = dt.datetime.now() - dt.timedelta(seconds=2*T_REPORT)
     with lock:
         df.drop(df.index[df.time < to_keep], inplace=True)
+        df.reset_index(inplace=True, drop=True)
 
 def make_a_log_file(name, to_terminal = True, to_filename = True, terminal_level="INFO", file_level = "INFO"):
     """
