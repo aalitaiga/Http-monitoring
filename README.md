@@ -33,4 +33,13 @@ Whenever
 Make
 
               sure all messages showing when alerting thresholds are
-              crossed remain visible on the page for historical
+
+To do:
+
+Alert by mail, phone?
+Call the gc to limit the memory usage
+Add some stats to predict when a threshold will be crossed
+Don't only look at the graph of connection but have a look 
+to the first derivative, send a warning when it's too high
+Also monitor https traffic
+
