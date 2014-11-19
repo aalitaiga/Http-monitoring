@@ -2,12 +2,13 @@
 Http Monitoring
 
 Usage:
-    http_monitoring.py <log_file>
+    http_monitoring.py LOG_FILE [--test]
     http_monitoring.py (-h | --help)
 
 Options:
     -h --help       Show this screen.
-    logfile        Name or path to the log file to tail.
+    LOG_FILE        Name or path to the log file to tail.
+    --test          Test mode
 """
 
 from threading import Thread, RLock
@@ -16,8 +17,6 @@ import logging
 import pandas as pd
 import re
 import datetime as dt
-
-bstr = '127.0.0.1 - adrien [{} -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326 "http://www.example.com/start.html" "Mozilla/4.08 [en] (Win98; I ;Nav)"'
 
 # A lock is used to prevent the different threads to access the dataframe
 # at the same time
@@ -31,25 +30,6 @@ THRESHOLD = 20
 # Global variable to store the data 
 global df
 df = pd.DataFrame(columns=['ip_adress', 'user_id', 'http_code', 'url', 'section', 'time']) 
-
-
-class WriteRandomStuff(Thread):
-    """ Thread that writes the time in a log,
-    used for testing. """
-
-    def __init__(self, log_name, duration, time_interval=0.1):
-        Thread.__init__(self)
-        self.duration = duration
-        self.log_name = log_name
-        self.time_interval = time_interval
-
-    def run(self):
-        test_log = make_a_log_file(self.log_name, to_terminal=False)
-        start_time = time.time()
-
-        while time.time() - start_time < self.duration:
-            test_log.info("")
-            time.sleep(self.time_interval)
 
 class WriteApacheLog(Thread):
     """ Thread that simulates an apache log,
@@ -257,7 +237,11 @@ if __name__ == '__main__':
 
     log = make_a_log_file('http_monitoring')
 
-    tail = TailLogFile(args['log_file'])
+    if args['--test']:
+        write = WriteApacheLog(args['LOG_FILE'], 200)
+        write.start()
+
+    tail = TailLogFile(args['LOG_FILE'])
     tail.start()
 
     monitor = MonitorTraffic()
