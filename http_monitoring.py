@@ -2,11 +2,12 @@
 Http Monitoring
 
 Usage:
-    http_monitoring.py log_file
+    http_monitoring.py
+    http_monitoring.py (-h | --help)
 
 Options:
     -h --help       Show this screen.
-    log_file        Name or path to the log file to tail.
+    logfile        Name or path to the log file to tail.
 """
 
 from threading import Thread, RLock
@@ -16,9 +17,12 @@ import pandas as pd
 import re
 import datetime as dt
 
+bstr = '127.0.0.1 - adrien [{} -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326 "http://www.example.com/start.html" "Mozilla/4.08 [en] (Win98; I ;Nav)"'
+
 # A lock is used to prevent the different threads to access the dataframe
 # at the same time
 lock = RLock()
+lockfile = RLock()
 # Time interval between report
 T_REPORT = 10
 # Time range window to use to monitor the traffic
@@ -52,7 +56,7 @@ class WriteApacheLog(Thread):
     """ Thread that simulates an apache log,
     used for testing. """
 
-    def __init__(self, file_name, duration, time_interval=0.1):
+    def __init__(self, file_name, duration, time_interval=0.3):
         Thread.__init__(self)
         self.duration = duration
         self.file_name = file_name
@@ -65,19 +69,19 @@ class WriteApacheLog(Thread):
                 with lock:
                     string = '127.0.0.1 - adrien [{} -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326 "http://www.example.com/start.html" "Mozilla/4.08 [en] (Win98; I ;Nav)" \n'
                     time_now = dt.datetime.strftime(dt.datetime.now(),"%d/%b/%Y:%H:%M:%S")
-                    f.write(string.format(time_now))
+                    with lock:
+                        f.write(string.format(time_now))
                 time.sleep(self.time_interval)
 
 class TailLogFile(Thread):
     """ Thread to keep track of the changes in the log file
     and update the dataframe containing the current data """
 
-    def __init__(self, file_name, refresh_interval=0.1, log_name="tail.log"):
+    def __init__(self, file_name, refresh_interval=0.05):
         Thread.__init__(self)
         self.file_name = file_name 
         # ecire quelque chose pour chemin absolu ou relatif
         self.refresh_interval = refresh_interval
-        self.log_name = log_name
         self.terminated = False
 
     def run(self): 
@@ -86,7 +90,8 @@ class TailLogFile(Thread):
                 file_.seek(0,2)
                 while not self.terminated:
                     curr_position = file_.tell()
-                    lines = file_.readlines()
+                    with lock:
+                        lines = file_.readlines()
                     if not lines:
                         file_.seek(curr_position)
                     else:
@@ -94,12 +99,35 @@ class TailLogFile(Thread):
                             with lock:
                                 add_to_df(l)
                     time.sleep(self.refresh_interval)
+
     def stop(self):
         self.terminated = True
 
+class AddLineToDf(Thread):
+    def __init__(self, line):
+        Thread.__init__(self)
+        self.line = line
+
+    def run(self):
+        """ Add line to the dataframe """
+        regex = r'([(\d\.)]+) ([^ ]+) ([^ ]+) \[(.*?)\] "(.*?)" (\d+|-) (\d+|-) (?:"(.*?)" "(.*?)")'
+        match = re.match(regex, self.line)
+        if match:
+            parsed_line = match.groups()
+        else:
+            return log.error(self.line)
+        # Format '10/Oct/2000:13:55:36 -0700'
+        # The time zone is removed, we assume the log file and the computer have the same
+        time = dt.datetime.strptime(parsed_line[3][:-6], "%d/%b/%Y:%H:%M:%S")
+        items = [parsed_line[i] for i in [0, 2, 5, 7]]
+        section = '/'.join(items[3].split('/')[:4])
+        items.extend([section, time])
+        df.loc[len(df)+1] = items
+        df.replace('-', pd.np.nan, inplace=True)
+
+
 def add_to_df(line):
     """ Add line to the dataframe """
-    log = make_a_log_file('http_monitoring.log')
     regex = r'([(\d\.)]+) ([^ ]+) ([^ ]+) \[(.*?)\] "(.*?)" (\d+|-) (\d+|-) (?:"(.*?)" "(.*?)")'
     match = re.match(regex, line)
     if match:
@@ -169,14 +197,15 @@ class MonitorTraffic(Thread):
 
             if self.on_alert:
                 if nb_hits < self.threshold:
-                    log.warning("Traffic back to normal, for the last two minutes\
-                    generated an alert - hits = {}, triggered at {}")\
-                    .format(nb_hits, current_time)
+                    alert = "Traffic back to normal, for the last two minutes " + \
+                    "generated an alert - hits = {}, triggered at {}"
+                    log.warning(alert.format(nb_hits, current_time))
+                    self.on_alert = False
             else:
                 if nb_hits > self.threshold:
-                    log.warning("High traffic for the last two minutes generated\
-                    an alert - hits = {}, triggered at {}")\
-                    .format(nb_hits, current_time)
+                    alert = "High traffic for the last two minutes generated " + \
+                    "an alert - hits = {}, triggered at {}"
+                    log.warning(alert.format(nb_hits, current_time))
                     self.on_alert = True
             clean_df()
             time.sleep(T_REPORT)
