@@ -69,8 +69,8 @@ class WriteApacheLog(Thread):
                 with lock:
                     string = '127.0.0.1 - adrien [{} -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326 "http://www.example.com/start.html" "Mozilla/4.08 [en] (Win98; I ;Nav)" \n'
                     time_now = dt.datetime.strftime(dt.datetime.now(),"%d/%b/%Y:%H:%M:%S")
-                    with lock:
-                        f.write(string.format(time_now))
+                    f.write(string.format(time_now))
+                    f.flush()
                 time.sleep(self.time_interval)
 
 class TailLogFile(Thread):
@@ -96,8 +96,22 @@ class TailLogFile(Thread):
                         file_.seek(curr_position)
                     else:
                         for l in lines:
-                            with lock:
-                                add_to_df(l)
+                                """ Add line to the dataframe """
+                                regex = r'([(\d\.)]+) ([^ ]+) ([^ ]+) \[(.*?)\] "(.*?)" (\d+|-) (\d+|-) (?:"(.*?)" "(.*?)")'
+                                match = re.match(regex, l)
+                                if match:
+                                    parsed_line = match.groups()
+                                else:
+                                    return log.error(l)
+                                # Format '10/Oct/2000:13:55:36 -0700'
+                                # The time zone is removed, we assume the log file and the computer have the same
+                                temps = dt.datetime.strptime(parsed_line[3][:-6], "%d/%b/%Y:%H:%M:%S")
+                                items = [parsed_line[i] for i in [0, 2, 5, 7]]
+                                section = '/'.join(items[3].split('/')[:4])
+                                items.extend([section, temps])
+                                with lock:
+                                    df.loc[len(df)+1] = items
+                                    df.replace('-', pd.np.nan, inplace=True)
                     time.sleep(self.refresh_interval)
 
     def stop(self):
@@ -140,8 +154,9 @@ def add_to_df(line):
     items = [parsed_line[i] for i in [0, 2, 5, 7]]
     section = '/'.join(items[3].split('/')[:4])
     items.extend([section, time])
-    df.loc[len(df)+1] = items
-    df.replace('-', pd.np.nan, inplace=True)
+    with lock:
+        df.loc[len(df)+1] = items
+        df.replace('-', pd.np.nan, inplace=True)
 
 class SendReport(Thread):
     """ Thread used to send a report every 10s """
@@ -183,7 +198,6 @@ class MonitorTraffic(Thread):
     # here it's done every 10s. We could keep in memory the data for the last 2min and
     # calculate the new stats about the traffic every 10s, but using a queue with fixed
     # sized we can limit the memory usage
-
 
     def run(self):
         queue = Queue(TM_WINDOW / T_REPORT)
