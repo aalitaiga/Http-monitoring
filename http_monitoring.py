@@ -2,7 +2,7 @@
 Http Monitoring
 
 Usage:
-    http_monitoring.py
+    http_monitoring.py <log_file>
     http_monitoring.py (-h | --help)
 
 Options:

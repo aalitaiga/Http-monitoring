@@ -38,9 +38,11 @@ Make
 
               sure all messages showing when alerting thresholds are
               crossed remain visible on the page for historical reasons.
-Write
 
-              a test for the alerting logic
-Explain
+To do:
 
-              how you’d improve on this application design
+Alert by mail, phone?
+Call the gc to limit the memory usage
+Add some stats to predict when a threshold will be crossed
+Don't only look at the graph of connection but have a look 
+to the first derivative
