@@ -2,22 +2,13 @@
 Http Monitoring
 
 Usage:
-<<<<<<< HEAD
-    http_monitoring.py LOG_FILE
-=======
     http_monitoring.py LOG_FILE [--test]
->>>>>>> 8e9b17d6815367d9e87f43a22d64ab7b27c5cc18
     http_monitoring.py (-h | --help)
 
 Options:
     -h --help       Show this screen.
-<<<<<<< HEAD
-    LOG_FILE      Name or path to the log file to tail.
-    --test
-=======
     LOG_FILE        Name or path to the log file to tail.
     --test          Test mode
->>>>>>> 8e9b17d6815367d9e87f43a22d64ab7b27c5cc18
 """
 
 from threading import Thread, RLock
