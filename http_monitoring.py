@@ -2,13 +2,22 @@
 Http Monitoring
 
 Usage:
+<<<<<<< HEAD
     http_monitoring.py LOG_FILE
+=======
+    http_monitoring.py LOG_FILE [--test]
+>>>>>>> 8e9b17d6815367d9e87f43a22d64ab7b27c5cc18
     http_monitoring.py (-h | --help)
 
 Options:
     -h --help       Show this screen.
+<<<<<<< HEAD
     LOG_FILE      Name or path to the log file to tail.
     --test
+=======
+    LOG_FILE        Name or path to the log file to tail.
+    --test          Test mode
+>>>>>>> 8e9b17d6815367d9e87f43a22d64ab7b27c5cc18
 """
 
 from threading import Thread, RLock
@@ -17,7 +26,6 @@ import logging
 import pandas as pd
 import re
 import datetime as dt
-
 
 # A lock is used to prevent the different threads to access the dataframe
 # at the same time
@@ -31,6 +39,52 @@ THRESHOLD = 20
 # Global variable to store the data 
 global df
 df = pd.DataFrame(columns=['ip_adress', 'user_id', 'http_code', 'url', 'section', 'time']) 
+
+
+def make_a_log_file(name, to_terminal = True, to_filename = True, terminal_level="INFO", file_level = "INFO"):
+    """
+    Create a new logger or also get the reference from an existing one
+    :param name: the name of the logger
+    :param to_terminal: if logging should go to terminal
+    :param to_filename: if logging should go to a file
+    :param terminal_level: logging file level
+    :param file_level: logging terminal level
+    :return: logger object
+    """
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+
+    if to_filename:
+        fh = logging.FileHandler('http_monitoring.log', encoding='UTF-8')
+        fh.setLevel(file_level)
+        fh.setFormatter(formatter)
+        logger.addHandler(fh)
+
+    if to_terminal:
+
+        found = False
+        for index,h in enumerate(logger.handlers):
+            if isinstance(h,logging.StreamHandler) and not isinstance(h,logging.FileHandler):
+                found = True
+                break
+
+        if not found:
+            ch = logging.StreamHandler()
+            ch.setLevel(terminal_level)
+            # create formatter and add it to the handlers
+            ch.setFormatter(formatter)
+            # add the handlers to the logger
+            logger.addHandler(ch)
+
+        else:
+            ch = logger.handlers[index]
+            ch.setFormatter(formatter)
+            ch.setLevel(terminal_level)
+    logger.propagate = False
+    return logger
+
+log = make_a_log_file('http_monitoring')
 
 class WriteApacheLog(Thread):
     """ Thread that simulates an apache log,
@@ -48,7 +102,7 @@ class WriteApacheLog(Thread):
             while time.time() - start_time < self.duration:
                 with lock:
                     string = '127.0.0.1 - adrien [{} -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326 "http://www.example.com/start.html" "Mozilla/4.08 [en] (Win98; I ;Nav)" \n'
-                    time_now = dt.datetime.strftime(dt.datetime.now(),"%d/%b/%Y:%H:%M:%S")
+                    time_now = dt.datetime.now().strftime("%d/%b/%Y:%H:%M:%S")
                     f.write(string.format(time_now))
                     f.flush()
                 time.sleep(self.time_interval)
@@ -64,7 +118,7 @@ class TailLogFile(Thread):
         self.refresh_interval = refresh_interval
         self.terminated = False
 
-    def run(self): 
+    def run(self):
         with open(self.file_name, 'r') as file_:
                 # Go to the end of file
                 file_.seek(0,2)
@@ -181,62 +235,21 @@ def add_to_df(line):
         df.loc[len(df)+1] = items
         df.replace('-', pd.np.nan, inplace=True) 
 
-def clean_df():
+def clean_df(interval=2*T_REPORT):
     """ Function to remove old data and to limit the memory usage """
-    to_keep = dt.datetime.now() - dt.timedelta(seconds=2*T_REPORT)
+    to_keep = dt.datetime.now() - dt.timedelta(seconds=interval)
     with lock:
         df.drop(df.index[df.time < to_keep], inplace=True)
         df.reset_index(inplace=True, drop=True)
-
-def make_a_log_file(name, to_terminal = True, to_filename = True, terminal_level="INFO", file_level = "INFO"):
-    """
-    Create a new logger or also get the reference from an existing one
-    :param name: the name of the logger
-    :param to_terminal: if logging should go to terminal
-    :param to_filename: if logging should go to a file
-    :param terminal_level: logging file level
-    :param file_level: logging terminal level
-    :return: logger object
-    """
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
-    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-
-    if to_filename:
-        fh = logging.FileHandler('http_monitoring.log', encoding='UTF-8')
-        fh.setLevel(file_level)
-        fh.setFormatter(formatter)
-        logger.addHandler(fh)
-
-    if to_terminal:
-
-        found = False
-        for index,h in enumerate(logger.handlers):
-            if isinstance(h,logging.StreamHandler) and not isinstance(h,logging.FileHandler):
-                found = True
-                break
-
-        if not found:
-            ch = logging.StreamHandler()
-            ch.setLevel(terminal_level)
-            # create formatter and add it to the handlers
-            ch.setFormatter(formatter)
-            # add the handlers to the logger
-            logger.addHandler(ch)
-
-        else:
-            ch = logger.handlers[index]
-            ch.setFormatter(formatter)
-            ch.setLevel(terminal_level)
-    logger.propagate = False
-    return logger
 
 if __name__ == '__main__':
     from docopt import docopt
 
     args = docopt(__doc__, version='Http Monitoring 1.0')
 
-    log = make_a_log_file('http_monitoring')
+    if args['--test']:
+        write = WriteApacheLog(args['LOG_FILE'], 200)
+        write.start()
 
     tail = TailLogFile(args['LOG_FILE'])
     tail.start()
