@@ -2,13 +2,12 @@
 Http Monitoring
 
 Usage:
-    http_monitoring.py LOG_FILE [--test]
+    http_monitoring.py LOG_FILE
     http_monitoring.py (-h | --help)
 
 Options:
     -h --help       Show this screen.
     LOG_FILE        Name or path to the log file to tail.
-    --test          Test mode
 """
 
 from threading import Thread, RLock
@@ -252,10 +251,6 @@ if __name__ == '__main__':
     from docopt import docopt
 
     args = docopt(__doc__, version='Http Monitoring 1.0')
-
-    if args['--test']:
-        write = WriteApacheLog(args['LOG_FILE'], 200)
-        write.start()
 
     tail = TailLogFile(args['LOG_FILE'])
     tail.start()

@@ -7,7 +7,7 @@ Installation:
 -------------
 
 You need to install [pandas](https://github.com/pydata/pandas) and [docopt](https://github.com/docopt/docopt)
-
+To run the tests you also need to install [testfixtures](https://pypi.python.org/pypi/testfixtures)
 
 Utilisation:
 -------------
@@ -21,6 +21,5 @@ Usage:
 Options:
     -h --help       Show this screen.
     LOG_FILE        Name or path to the log file to tail.
-    --test          Test mode
 ```
 
