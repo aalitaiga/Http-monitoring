@@ -28,11 +28,12 @@ TM_WINDOW = 120
 # Number of connection autorized during the window
 THRESHOLD = 20
 # Global variable to store the data 
-global df
+#global df
 df = pd.DataFrame(columns=['ip_adress', 'user_id', 'http_code', 'url', 'section', 'time']) 
 
 
-def make_a_log_file(name, to_terminal = True, to_filename = True, terminal_level="INFO", file_level = "INFO"):
+def make_a_log_file(name, to_terminal = True, to_filename = True,
+                            terminal_level="INFO", file_level = "INFO"):
     """
     Create a new logger or also get the reference from an existing one
     :param name: the name of the logger
@@ -56,7 +57,8 @@ def make_a_log_file(name, to_terminal = True, to_filename = True, terminal_level
 
         found = False
         for index,h in enumerate(logger.handlers):
-            if isinstance(h,logging.StreamHandler) and not isinstance(h,logging.FileHandler):
+            if isinstance(h,logging.StreamHandler) and \
+                not isinstance(h,logging.FileHandler):
                 found = True
                 break
 
@@ -92,7 +94,8 @@ class WriteApacheLog(Thread):
         with open(self.file_name, 'w+') as f:
             while time.time() - start_time < self.duration:
                 with lock:
-                    string = '127.0.0.1 - adrien [{} -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326 "http://www.example.com/start.html" "Mozilla/4.08 [en] (Win98; I ;Nav)" \n'
+                    string = '127.0.0.1 - adrien [{} -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326 ' + \
+                    '"http://www.example.com/start.html" "Mozilla/4.08 [en] (Win98; I ;Nav)" \n'
                     time_now = dt.datetime.now().strftime("%d/%b/%Y:%H:%M:%S")
                     f.write(string.format(time_now))
                     f.flush()
@@ -129,18 +132,20 @@ class TailLogFile(Thread):
 
 class SendReport(Thread):
     """ Thread used to send a report every 10s """
-    def __init__(self):
+    def __init__(self, refresh_interval=T_REPORT):
         Thread.__init__(self)
+        self.terminated = False
+        self.refresh_interval = refresh_interval
 
     def run(self):
-        while True:
-            time_report = dt.datetime.now() - dt.timedelta(seconds=T_REPORT)
+        while not self.terminated:
+            time_report = dt.datetime.now() - dt.timedelta(seconds=self.refresh_interval)
 
             with lock:
                 to_report = df[df['time'] > time_report]
 
             if to_report.empty:
-                log.info("Report for the last {}s: No connection were made".format(T_REPORT))
+                log.info("Report for the last {}s: No connection was made".format(self.refresh_interval))
 
             else:
                 max_section = to_report.groupby('section').count().idxmax()[0]
@@ -150,18 +155,26 @@ class SendReport(Thread):
 
                 report_string = "Report for the last {}s :{} connections were made, from {} users, " + \
                 "{} was the section with the most hits ({} hits)"
-                log.info(report_string.format(T_REPORT, nb_connections, nb_users, max_section, nb_section_hits))
-            time.sleep(T_REPORT)
+                log.info(report_string.format(
+                    self.refresh_interval, nb_connections, nb_users, max_section, nb_section_hits
+                ))
+            time.sleep(self.refresh_interval)
+
+    def stop(self):
+        self.terminated = True
 
 class MonitorTraffic(Thread):
     """ Thread that send a warning if the traffic was above a certain
     value for more than 2 minutes. Send an other warning when the traffic
     gets back to normal """
 
-    def __init__(self, threshold=THRESHOLD):
+    def __init__(self, threshold=THRESHOLD, window_range=TM_WINDOW, refresh_interval=T_REPORT):
         Thread.__init__(self)
         self.on_alert = False
         self.threshold = threshold
+        self.refresh_interval = refresh_interval
+        self.terminated = False
+        self.window_range = window_range
 
     # To monitor the traffic on the last 2min we need to check the traffic regularly, 
     # here it's done every 10s. We could keep in memory the data for the last 2min and
@@ -169,10 +182,10 @@ class MonitorTraffic(Thread):
     # sized we can limit the memory usage
 
     def run(self):
-        queue = Queue(TM_WINDOW / T_REPORT)
-        while True:
+        queue = Queue(int(self.window_range / self.refresh_interval))
+        while not self.terminated:
             current_time = dt.datetime.now()
-            interval_to_monitor = current_time - dt.timedelta(seconds=T_REPORT)
+            interval_to_monitor = current_time - dt.timedelta(seconds=self.refresh_interval)
             with lock:
                 to_monitor = df[df.time > interval_to_monitor]
             queue.push(len(to_monitor))
@@ -180,7 +193,7 @@ class MonitorTraffic(Thread):
 
             if self.on_alert:
                 if nb_hits < self.threshold:
-                    alert = "Traffic back to normal, for the last two minutes " + \
+                    alert = "Traffic back to normal for the last two minutes " + \
                     "generated an alert - hits = {}, triggered at {}"
                     log.warning(alert.format(nb_hits, current_time))
                     self.on_alert = False
@@ -191,8 +204,10 @@ class MonitorTraffic(Thread):
                     log.warning(alert.format(nb_hits, current_time))
                     self.on_alert = True
             clean_df()
-            time.sleep(T_REPORT)
+            time.sleep(self.refresh_interval)
 
+    def stop(self):
+        self.terminated = True
         
 class Queue(object):
     """ Implement a queue of fixed size that removed the first when filled """

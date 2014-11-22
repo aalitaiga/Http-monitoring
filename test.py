@@ -1,6 +1,7 @@
 import unittest
 import datetime as dt
 import time
+from testfixtures import LogCapture
 import os
 import re
 from http_monitoring import (
@@ -13,16 +14,16 @@ from http_monitoring import (
 class TestUtils(unittest.TestCase):
 
 	def test_write_apache_log(self):
-		if os.path.isfile("apache.log"):
-			os.remove("apache.log")
-		write = WriteApacheLog('apache.log', 0.5, 0.05)
+		if os.path.isfile("test.log"):
+			os.remove("test.log")
+		write = WriteApacheLog('test.log', 0.5, 0.05)
 		write.start()
 		write.join()
 
-		with open('apache.log', 'r') as f:
+		with open('test.log', 'r') as f:
 			line = f.readline()
 			self.assertIsNotNone(line)
-		os.remove("apache.log")
+		os.remove("test.log")
 
 	def clean_df(self):
 		clean_df(0)
@@ -45,15 +46,13 @@ class TestUtils(unittest.TestCase):
 	def test_tail_log_file(self):
 		if os.path.isfile("test.log"):
 			os.remove("test.log")
-		if os.path.isfile("http_monitoring.log"):
-			os.remove("http_monitoring.log")
 		clean_df(0)
 		write = WriteApacheLog("test.log", 1)
 		tail = TailLogFile("test.log")
 		write.start()
 		tail.start()
 		write.join()
-		time.sleep(0.1)
+		time.sleep(0.2)
 		tail.stop()
 
 		with open("test.log", 'r') as test:
@@ -62,10 +61,43 @@ class TestUtils(unittest.TestCase):
 		os.remove("test.log")
 
 	def test_send_report(self):
-		pass
+		if os.path.isfile("test.log"):
+			os.remove("test.log")
+		clean_df()
+
+		write = WriteApacheLog('test.log', 0.1, 0.01)
+		tail = TailLogFile('test.log', refresh_interval=0.01)
+		report = SendReport(refresh_interval=0.1)
+
+		with LogCapture('http_monitoring') as l:
+			write.start()
+			tail.start()
+			report.start()
+			write.join()
+			tail.stop()
+			report.stop()
+
+		self.assertIsNotNone(l)
+
 
 	def test_monitor_traffic(self):
-		pass
+		if os.path.isfile("apache.log"):
+			os.remove("apache.log")
+		clean_df()
+
+		write = WriteApacheLog('apache.log', 1, 0.01)
+		tail = TailLogFile('apache.log', refresh_interval=0.01)
+		monitor = MonitorTraffic(threshold=5, window_range=0.2, refresh_interval=0.2)
+
+		with LogCapture('http_monitoring') as l:
+			write.start()
+			tail.start()
+			monitor.start()
+			write.join()
+			time.sleep(1)
+			tail.stop()
+	
+		self.assertIsNotNone(l)
 
 	def test_queue(self):
 		queue = Queue(3)
