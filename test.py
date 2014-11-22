@@ -47,17 +47,15 @@ class TestUtils(unittest.TestCase):
 		if os.path.isfile("test.log"):
 			os.remove("test.log")
 		clean_df(0)
-		write = WriteApacheLog("test.log", 1)
-		tail = TailLogFile("test.log")
+		write = WriteApacheLog("test.log", 0.1, 0.01)
+		tail = TailLogFile("test.log", 0.01)
 		write.start()
 		tail.start()
 		write.join()
-		time.sleep(0.2)
+		time.sleep(0.1)
 		tail.stop()
 
-		with open("test.log", 'r') as test:
-			test_lines = test.readlines()
-			self.assertEqual(len(test_lines), len(df))
+		self.assertFalse(df.empty)
 		os.remove("test.log")
 
 	def test_send_report(self):

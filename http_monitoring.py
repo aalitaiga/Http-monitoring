@@ -27,7 +27,6 @@ TM_WINDOW = 120
 # Number of connection autorized during the window
 THRESHOLD = 20
 # Global variable to store the data 
-#global df
 df = pd.DataFrame(columns=['ip_adress', 'user_id', 'http_code', 'url', 'section', 'time']) 
 
 
