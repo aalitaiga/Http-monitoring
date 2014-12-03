@@ -208,7 +208,8 @@ class MonitorTraffic(Thread):
         self.terminated = True
         
 class Queue(object):
-    """ Implement a queue of fixed size that removed the first when filled """
+    """ Implement a queue of fixed size that removed the first element which
+    entered the queue when filled """
     def __init__(self, queue_size):
         self.queue = []
         self.max_size = queue_size
