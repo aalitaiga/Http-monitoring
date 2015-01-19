@@ -20,7 +20,7 @@ import datetime as dt
 # A lock is used to prevent the different threads to access the dataframe
 # at the same time
 lock = RLock()
-# Time interval between report
+# Time interval between reports
 T_REPORT = 10
 # Time range window to use to monitor the traffic
 TM_WINDOW = 120
