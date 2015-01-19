@@ -7,7 +7,7 @@ Installation:
 -------------
 
 You need to install [pandas](https://github.com/pydata/pandas) and [docopt](https://github.com/docopt/docopt)
-To run the tests you also need to install [testfixtures](https://pypi.python.org/pypi/testfixtures)
+To run the tests you also need [testfixtures](https://pypi.python.org/pypi/testfixtures)
 
 Utilisation:
 -------------
@@ -15,7 +15,7 @@ Utilisation:
 ```
 Usage:
 
-    http_monitoring.py LOG_FILE [--test]
+    http_monitoring.py LOG_FILE
     http_monitoring.py (-h | --help)
 
 Options:
